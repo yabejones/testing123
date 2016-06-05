@@ -1,0 +1,169 @@
+---
+title: "Regression Analysis of Insurance Data"
+author: "Abe-Jones, Yumiko"
+date: "May 9, 2016"
+output: html_document
+subtitle: STAT6620, Spring 2016, HW5, Part 1
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## I. Get the data.
+
+```{r}
+insurance <- read.csv("insurance.csv", stringsAsFactors = TRUE)
+str(insurance)
+```
+The data set consists of 1338 observations of 7 variables of which 3, including the target, are continuous, and the rest categorical. The target variable is **expenses**. 
+
+## II. Explore and prepare the data for modeling.
+
+### Distribution
+
+```{r}
+# summarize the charges variable
+summary(insurance$expenses)
+
+# histogram of insurance charges
+hist(insurance$expenses)
+
+# table of region
+table(insurance$region)
+```
+
+The expenses are right skewed between $1,122 and $63,770, with a mean of $13,270. Insurance claims are fairly evenly distributed amongst the four regions, but with somewhat heavier load (in numbers of claims) in the Southeast.
+
+### Relationships between variables
+
+A look at correlations amongst variables, in tabular and graphical format:
+```{r}
+# exploring relationships among features: correlation matrix
+cor(insurance[c("age", "bmi", "children", "expenses")])
+
+# visualing relationships among features: scatterplot matrix
+pairs(insurance[c("age", "bmi", "children", "expenses")])
+
+# more informative scatterplot matrix
+library(psych)
+pairs.panels(insurance[c("age", "bmi", "children", "expenses")])
+```
+
+It does not appear that any of the variables explored above are excessively correlated, but the strongest correlation appears to be age and expense, followed by BMI and expense, which are unsurprising.
+
+## III. Train the model.
+```{r}
+## Step 3: Training a model on the data ----
+ins_model <- lm(expenses ~ age + children + bmi + sex + smoker + region,
+                data = insurance)
+
+# see the estimated beta coefficients
+ins_model
+```
+
+Preliminarily, expenses can be predicted using the following formula: 
+-$11,941.6 + $256.8(age) - $131.4(sex=male) + $339.3(bmi) + $475.7(children) + $23,847.5(smoker) - $352.8(region=NW) - $1,035.6(region=SE) - $959.3(region=SW)
+
+For instance, starting with a baseline of -$11,941.6, expenses rise $257 for every unit increase in age, $339 for every unit increase in BMI, and a whopping $23,848 if the insuree is a smoker. However if the insuree resides in the Southeast, their expenses are likely to decrease by $1,036 if all other variables are held constant.
+
+However we haven't yet looked at which of these variables are significant.
+
+## IV. Evaluate model performance.
+
+```{r}
+## Step 4: Evaluating model performance ----
+# see more detail about the estimated beta coefficients
+summary(ins_model)
+```
+The resulting model has an RSE of 6,062 on 1,329 degrees of freedom. (I am as of yet unclear as to how to tell whether this is good or bad, unless I am able to compare the value with another model's result.)
+
+The Multiple and Adjusted R-squared values indicate that about 75% of the variability in expenses may be accounted for by this LR model, which is good. There are six total variables whose p-values are below 0.05, the alpha value generally considered the threshold for significance.
+
+These variables are:
+
+* Age (p < 0.001)
+
+* BMI (p < 0.001)
+
+* Children (p < 0.001)
+
+* Smoker = yes (p < 0.001)
+
+* Region of residence = SE (p = 0.031)
+
+* Region of residence = SW (p = 0.045)
+
+The F-statistic is 500.9 on 8 and 1,329 Degrees of Freedom, giving an overall p-value < 0.001. Thus we would reject the null hypothesis (e.g. no relationship between explanatory and target variables). 
+
+## V. Improve model performance.
+
+First, remove the insignificant (p close to 0.05) variables, which are *sex* and *region* and rerun the model:
+
+```{r}
+ins_model1.5 <- lm(expenses ~ age + children + bmi + smoker,
+                data = insurance)
+
+# see the estimated beta coefficients
+ins_model1.5
+summary(ins_model1.5)
+```
+
+The adjustments result in a higher F-statistic at 998.2 on 4 and 1,333 Degrees of Freedom, indicating that more of the total variability is accounted for by this model. We also see a smaller difference between the Multiple- and Adjusted R-squared values, indicating that we have shed some non-value-adding variables. All four remaining explanatory variables have significant p-values, but the RSE has increased to 6,068 (although a six-point increase likely is inconsequential, given the range of the RSE).
+
+Now we return to the original model and try transforming the explanatory variables in order to arrive at a stronger model.
+
+The changes made are:
+
+1. Square the age: explores the possibility that age and expense are related, but in a non-linear fashion.
+
+2. Bin the BMI values into two levels, < 30 and >= 30: determining whether clinically obesity (BMI > 30) as a group, contributes to higher expenses. 
+
+3. Create an aggregated variable that combines BMI >= 30 and smoking: looks at *interaction effect* of two unhealthful characteristics (obesity and smoking) to see if the presence of both is likely to contribute more to the outcome than each alone.
+
+These changes made, rerun the model:
+```{r}
+## Step 5: Improving model performance ----
+
+# add a higher-order "age" term
+insurance$age2 <- insurance$age^2
+
+# add an indicator for BMI >= 30
+insurance$bmi30 <- ifelse(insurance$bmi >= 30, 1, 0)
+
+# create final model
+ins_model2 <- lm(expenses ~ age + age2 + children + bmi + sex +
+                   bmi30*smoker + region, data = insurance)
+
+summary(ins_model2)
+```
+
+This model is significantly better. The RSE has decreased from about 6,070 to 4,445 on 1,326 degrees of freedom; the Multiple- and Adjusted R-Squared values have gone up significantly, to around 0.866. The F-statistic is around 782, which is a decrease from the last model. This model has several insignificant variables (bmi, sex, region), so we will try one more model removing them, and see where we end up.
+
+```{r}
+# create final model
+ins_model2.5 <- lm(expenses ~ age + age2 + children + 
+                   bmi30*smoker, data = insurance)
+
+summary(ins_model2.5)
+```
+
+Our final result has an RSE of 4,483 on 1,331 degrees of freedom, Multiple- and Adjusted R-squared values around 0.863, and an F-statistic of 1,404 on 6 and 1,331 degrees of freedom. All variables except *age* (retained as *polynomial regression* variable with age^2) and *bmi30* (retained to uphold the *hierarchical principle*) have p-values < 0.001. 
+
+### Conclusion:
+
+#### Results Summary:
+
+Another look at the results from the four runs in chronolical order (all models had p-values <<< 0.05):
+
+Model | RSE (DF)    | R-sq  | Adj R-sq | F-stat (DF)
+------|-------------|-------|----------|---------------------
+1     | 6062 (1329) | .7509 | .7494    |  501 ( 8/1329)
+2     | 6068 (1333) | .7497 | .749     |  998 ( 4/1333)
+3     | 4445 (1326) | .8664 | .8653    |  782 (11/1326)
+4     | 4483 (1331) | .8636 | .8629    | 1404 (6/1331)
+
+On the basis of the highest R-squared values and lowest RSE, the third model performed better; however in terms of parsimony, the size of the difference between the R-sq and Adj R-sq scores and a much higher F-statistic, the final model might slightly edge it out. The difference between the two may or may not be significant. 
+
+It is these subtleties with which I have difficulty.
